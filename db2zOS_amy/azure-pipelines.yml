@@ -1,0 +1,157 @@
+trigger: none
+
+name: $(Application.Name)-$(Build.BuildId)
+
+variables:
+- template: ./variables.yml 
+- group: Liquibase_Variables
+
+
+pool:
+   name: $(Agent.PoolName)
+
+workspace:
+      clean: all
+
+resources:         
+  repositories:
+
+  - repository: DDB_REPOSITORY
+    name: liquibase/$(Git.Repository)
+    type: GitHub
+    connection: liquibase
+    endpoint: liquibase
+    source: liquibase/$(Git.Repository)
+    ref: 'refs/heads/main'
+
+  - repository: SQL_REPOSITORY
+    name: liquibase/$(Git.Repository2)
+    type: GitHub
+    connection: liquibase
+    endpoint: liquibase
+    source: liquibase/$(Git.Repository2)
+    ref: 'refs/heads/current'
+
+  - repository: CICD_REPOSITORY
+    name: liquibase/cs_azure_cicd_pipelines
+    type: GitHub
+    connection: liquibase
+    endpoint: liquibase
+    source: liquibase/cs_azure_cicd_pipelines
+    ref: 'refs/heads/main'
+ 
+  - repository: CENTRALIZED_RULES_REPOSITORY
+    name: liquibase/cs_lbe_centralized_rules
+    type: GitHub
+    connection: liquibase
+    endpoint: liquibase
+    source: liquibase/cs_lbe_centralized_rules
+    ref: 'refs/heads/main'
+
+steps:
+- checkout: DDB_REPOSITORY
+  persistCredentials: true
+  clean: true
+- checkout: SQL_REPOSITORY
+  clean: true
+  fetchDepth: 100
+  persistCredentials: true
+- checkout: CENTRALIZED_RULES_REPOSITORY
+  clean: true
+  persistCredentials: true
+  
+- script: |
+    whoami
+    hammer show version
+    echo $(System.DefaultWorkingDirectory)
+    printenv
+  displayName: 'Run Prechecks'
+ 
+# Ensure the PATH includes the necessary executables, eg. hammer and sqlplus/sqlcmd/clpplus/psql
+# Also copy the Rules from the Centralized rules folder to the DDB folder
+- powershell: |
+    $Env:Path += ";C:\Users\Administrator\DaticalDB\repl"
+    $Env:Path += ";C:\Program Files\Microsoft SQL Server\Client SDK\ODBC\170\Tools\Binn\"
+    cd $(Git.Repository)
+    xcopy /s/e/y ..\CENTRALIZED_RULES\Rules\. .\Rules\*
+  condition: eq( variables['Agent.OS'], 'Windows_NT' )
+  displayName: 'Update PATH (Windows) and set Rules'
+  
+- script: |
+    export PATH="$PATH:/opt/datical/DaticalDB/repl"
+    export PATH="$PATH:/opt/mssql-tools/bin"
+    cd $(Git.Repository)
+    cp -R ../CENTRALIZED_RULES/Rules .
+  condition: eq( variables['Agent.OS'], 'Linux' )
+  displayName: 'Update PATH (Linux) and set Rules'
+  
+- script: |
+    cd $(Git.Repository) 
+    hammer groovy deployPackager.groovy pipeline=current commitPrefix="[skip ci]" scm=true labels=$(Build.BuildId),current
+    if [ $? -ne 0 ]; then exit 1; fi
+  displayName: 'Run Liquibase packager'
+  env:
+    DDB_USER: $(Liquibase-db2zOS_amy-ref1-User)
+    DDB_PASS: $(Liquibase-db2zOS_amy-ref1-Pass)
+    DDB_DMCDB_USER: $(Liquibase-db2zOS_amy-dmc-User)
+    DDB_DMCDB_PASS: $(Liquibase-db2zOS_amy-dmc-Pass)
+
+# Compress files into .zip
+- task: ArchiveFiles@2
+  inputs:
+    rootFolderOrFile: '$(System.DefaultWorkingDirectory)/$(Git.Repository)'
+    includeRootFolder: true
+    archiveType: 'zip'
+    archiveFile: '$(System.DefaultWorkingDirectory)/artifacts/$(Application.Name)-$(Build.BuildId).zip'
+
+- upload: $(System.DefaultWorkingDirectory)/artifacts/$(Application.Name)-$(Build.BuildId).zip
+  artifact: drop
+
+- task: ArtifactoryGenericUpload@2
+  inputs:
+    artifactoryService: 'ArtifactoryCS'
+    specSource: 'taskConfiguration'
+    fileSpec: |
+      {
+        "files": [
+          {
+            "pattern": "artifacts/$(Application.Name)-$(Build.BuildId).zip",
+            "target": "$(Project.Name)/$(Application.Name)/"
+          }
+        ]
+      }
+    replaceSpecVars: true
+    specVars: '$(Application.Name),$(Build.BuildId)'
+    collectBuildInfo: true
+    buildName: '$(Build.DefinitionName)'
+    buildNumber: '$(Build.BuildNumber)'
+    module: '$(Project.Name)'
+    failNoOp: true
+  displayName: 'Upload zip to artifactory'
+
+- task: ArtifactoryPublishBuildInfo@1
+  inputs:
+    artifactoryService: 'ArtifactoryCS'
+    buildName: '$(Build.DefinitionName)'
+    buildNumber: '$(Build.BuildNumber)'
+  displayName: 'Publish Build Info to artifactory'
+
+- task: ArtifactoryBuildPromotion@1
+  inputs:
+    artifactoryService: 'ArtifactoryCS'
+    buildName: '$(Build.DefinitionName)'
+    buildNumber: '$(Build.BuildNumber)'
+    targetRepo: '$(Project.Name)'
+    status: 'Released'
+    sourceRepo: '$(Project.Name)'
+    includeDependencies: false
+    copy: false
+    dryRun: false
+  displayName: 'Promote Build to artifactory'
+
+- task: AzureKeyVault@2
+  inputs:
+    azureSubscription: 'CustomerSuccessPayAsGo'
+    KeyVaultName: 'cs-key-vault1'
+    SecretsFilter: '*'
+    RunAsPreJob: true

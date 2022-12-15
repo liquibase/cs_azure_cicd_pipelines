@@ -1,0 +1,10 @@
+variables:
+   Project.Name: db2zOS_amy
+   Application.Name: db2zOS_amy-App
+   Git.Repository: db2zOS_amy_DDB
+   Git.Repository2: db2zOS_amy_SQL
+   Agent.PoolName: 'CS'
+   JFrog.EndPoint: 'JFrog-DevOps'
+   JFrog.Repository: 'db2zOS_amy'
+   App.Version: $(Build.BuildId)
+   Source.Branch: 'current'
