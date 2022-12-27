@@ -1,0 +1,10 @@
+variables:
+   Project.Name:
+   Application.Name:
+   Git.Repository:
+   Git.Repository2:
+   Agent.PoolName:
+   JFrog.EndPoint:
+   JFrog.Repository:
+   App.Version: $(Build.BuildId)
+   Source.Branch:

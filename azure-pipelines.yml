@@ -81,20 +81,21 @@ steps:
     export PATH="$PATH:/opt/datical/DaticalDB/repl"
     export PATH="$PATH:/opt/mssql-tools/bin"
     cd $(Git.Repository)
-    cp -R ../CENTRALIZED_RULES/Rules .
+    cp -R ../cs_lbe_centralized_rules/Rules .
   condition: eq( variables['Agent.OS'], 'Linux' )
   displayName: 'Update PATH (Linux) and set Rules'
   
 - script: |
     cd $(Git.Repository) 
+    . /home/db2inst1/sqllib/db2profile source
     hammer groovy deployPackager.groovy pipeline=current commitPrefix="[skip ci]" scm=true labels=$(Build.BuildId),current
     if [ $? -ne 0 ]; then exit 1; fi
   displayName: 'Run Liquibase packager'
   env:
-    DDB_USER: $(Liquibase-db2zOS_amy-ref1-User)
-    DDB_PASS: $(Liquibase-db2zOS_amy-ref1-Pass)
-    DDB_DMCDB_USER: $(Liquibase-db2zOS_amy-dmc-User)
-    DDB_DMCDB_PASS: $(Liquibase-db2zOS_amy-dmc-Pass)
+    DDB_USER: $(Liquibase-abc-ref1-User)
+    DDB_PASS: $(Liquibase-abc-ref1-Pass)
+    DDB_DMCDB_USER: $(Liquibase-abc-dmc-User)
+    DDB_DMCDB_PASS: $(Liquibase-abc-dmc-Pass)
 
 # Compress files into .zip
 - task: ArchiveFiles@2
@@ -104,8 +105,9 @@ steps:
     archiveType: 'zip'
     archiveFile: '$(System.DefaultWorkingDirectory)/artifacts/$(Application.Name)-$(Build.BuildId).zip'
 
+# If using Azure Artifacts
 - upload: $(System.DefaultWorkingDirectory)/artifacts/$(Application.Name)-$(Build.BuildId).zip
-  artifact: drop
+  artifact: $(Application.Name)
 
 - task: ArtifactoryGenericUpload@2
   inputs:
